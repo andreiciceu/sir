@@ -15,8 +15,8 @@ Constraints:
 Guidelines:
 
 - In all interactions and outputs, be extremly concise and sacrifice grammar for the sake of concision; you should do this when generating the plan, and the tool itself should also do this
-- All the tools, code, prompts created should be concise, short and minimal to keep efficiency
 - Value clarity, simplicity, minimalism
+- All the tools, code, prompts created should be concise, short and minimal to keep efficiency
 
 Tools:
 
