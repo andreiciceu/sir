@@ -1,58 +1,39 @@
 #!/usr/bin/env bash
-# SIR — Stateful Incremental Reasoner or Supreme Intelligence for Reasoning
-# Simple AI-powered tool for project management & development
-# one bash file. macOS. ultra-minimal. prompt harness + state.
-# agent-agnostic: swap AI_CMD + AI_ARGS + prompt parts in CONFIG.
+# SIR - Stateful Incremental Reasoner (AI-powered project assistant)
+# Single-file, macOS-compatible (bash). Focused on clarity and minimalism.
 
 set -euo pipefail
 
 ########################################
-# CONFIG (project override via env)
+# CONFIG - override via env per project
 ########################################
-SIR_DIR="${SIR_DIR:-.sir}"
-MEM="${MEM:-$SIR_DIR/memory}"
+SIR_DIR="${SIR_DIR:-.sir}"                      # directory for SIR state files
+MEM="${MEM:-$SIR_DIR/memory}"                   # memory folder (stores PRD, tasks, etc.)
 
-PRD="${PRD:-$MEM/PRD.md}"
-TASKS="${TASKS:-$MEM/tasks.json}"
-PROG="${PROG:-$MEM/progress.txt}"
-GUIDE="${GUIDE:-$MEM/GUIDELINES.md}"
+PRD="${PRD:-$MEM/PRD.md}"                       # Product Requirements Document (markdown)
+TASKS="${TASKS:-$MEM/tasks.json}"               # Task list (JSON feature list)
+PROG="${PROG:-$MEM/progress.txt}"               # Progress log (plain text)
+GUIDE="${GUIDE:-$MEM/GUIDELINES.md}"            # Project guidelines documentation
+INBOX="${INBOX:-$MEM/inbox}"                    # New inputs (notes, chats, meetings, etc)
+PROCESSED="${PROCESSED:-$MEM/processed.txt}"    # processed file list/markers
+STORIES="${STORIES:-$MEM/stories.md}"           # user stories (draft)
 
-INBOX="${INBOX:-$MEM/inbox}"              # new inputs (notes, chats, meetings, etc)
-PROCESSED="${PROCESSED:-$MEM/processed.txt}" # processed file list/markers
-STORIES="${STORIES:-$MEM/stories.md}"     # user stories (draft)
-LOCK="${LOCK:-$SIR_DIR/.lock}"            # coarse lock
+AI_CMD="${AI_CMD:-claude}"                      # AI command-line tool (e.g. Claude CLI)
+AI_ARGS_DEFAULT=(${AI_ARGS_DEFAULT:-"-p"})      # default args for AI tool (prompt flag etc.)
+CAN_ASK_CLARIFY="${CAN_ASK_CLARIFY:-true}"      # whether AI can ask clarifying questions
 
-# Agent cmd + args. keep generic.
-AI_CMD="${AI_CMD:-claude}"
-# Common pattern: tool reads stdin prompt, outputs to stdout.
-# Override per agent: e.g. AI_ARGS_DEFAULT='-p' or 'run' etc.
-AI_ARGS_DEFAULT_STR="${AI_ARGS_DEFAULT_STR:-"-p"}"
-
-# Tone + meta rules (ultra-terse)
-TONE="${TONE:-ultra-terse. no fluff. short lines. ok bad grammar.}"
-
-# Prompt parts (swap these if agent changes)
-P_SYS="${P_SYS:-You are SIR. do exact tasks. be terse.}"
-P_FORMAT="${P_FORMAT:-Output only needed. If need user input: emit <ask>Q</ask> then stop.}"
-P_GUARD="${P_GUARD:-Never hallucinate file contents. Read files. Edit files directly. Minimal diffs.}"
-
-# Git behavior
-GIT="${GIT:-git}"
-AUTO_COMMIT="${AUTO_COMMIT:-0}"   # 1 = attempt commit; 0 = just tell user commands
+TONE="${TONE:-ultra-terse. drop fluff. ok bad grammar. no essays.}"
 
 ########################################
-# UTIL
+# UTILITIES
 ########################################
 die(){ echo "err: $*" >&2; exit 1; }
 ok(){ echo "$*"; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "need $1"; }
 ts(){ date "+%Y-%m-%d %H:%M:%S"; }
 
-ai(){
-  # stdin prompt in, stdout out
-  # shellcheck disable=SC2086
-  "$AI_CMD" $AI_ARGS_DEFAULT_STR
-}
+# Invoke AI tool with given prompt (using default args plus any extra passed)
+ai(){ "$AI_CMD" "${AI_ARGS_DEFAULT[@]}" "$@"; }
 
 ensure_files(){
   mkdir -p "$MEM" "$INBOX"
@@ -60,61 +41,31 @@ ensure_files(){
   [[ -f "$PROG" ]] || : >"$PROG"
   [[ -f "$GUIDE" ]] || : >"$GUIDE"
   [[ -f "$STORIES" ]] || : >"$STORIES"
-  [[ -f "$PROCESSED" ]] || : >"$PROCESSED"
-  [[ -f "$TASKS" ]] || echo '{"tasks":[]}' >"$TASKS"
+  [[ -f "$PROCESSED" ]] || : >"$PROCESSED"  
+  [[ -f "$TASKS" ]] || echo '{"tasks":[]}' >"$TASKS"  
 }
 
-# list files in a dir, small + safe.
-scan_dir(){
-  local d="$1"
-  [[ -d "$d" ]] || die "dir not found: $d"
-  # keep small. ignore huge binaries.
-  (cd "$d" && find . -type f \
-    ! -path "*/.git/*" ! -path "*/node_modules/*" ! -path "*/.sir/*" \
-    -maxdepth 5 -print | sed 's|^\./||')
-}
-
+# Assemble context for AI prompt (file paths and rules)
 ctx(){
   cat <<EOF
-$P_SYS
-
 SIR Context
+-----------
 Files:
 - PRD: $PRD
 - Tasks: $TASKS
 - Progress: $PROG
 - Guidelines: $GUIDE
-- Stories: $STORIES
-- Inbox: $INBOX
-- Processed markers: $PROCESSED
 
 Rules:
 - $TONE
-- $P_GUARD
-- $P_FORMAT
-
-Ops:
-- Prefer append-only logs ($PROG).
-- Keep tasks tiny + independent (one commit sized).
-- When blocked: emit <ask>...</ask> only.
-- When done: emit <done/> only.
-EOF
-}
-
-########################################
-# PROMPT HELPERS (best practices)
-########################################
-# Pattern: "plan small, do 1 step, update state, stop"
-# Avoid multi-step long runs. prefer one iteration loops.
-preamble(){
-  cat <<EOF
-$(ctx)
-
-Hard constraints:
-- One step only per run unless explicitly told loop.
-- If changing code: run fastest checks available (format/lint/tests) but keep minimal.
-- Update $TASKS + $PROG on every run (even if no changes).
-- Never mark task passes=true unless verified (tests/build or clear manual check).
+- CAN_ASK_CLARIFY: $CAN_ASK_CLARIFY
+- Always be concise and clear; sacrifice grammar for the sake of concision.
+- Use and update the files above directly (read/modify them as needed).
+- **Do NOT remove or rewrite requirements/tests**; only mark tasks as done (passes=true) after proper completion.
+- Follow any project-specific instructions in Guidelines (e.g., how to run tests or style conventions).
+- Make minimal necessary changes for each task.
+- If something is unclear, ask clarifying questions.
+- If an error or block is encountered, output "<error>".
 EOF
 }
 
@@ -122,249 +73,243 @@ EOF
 # COMMANDS
 ########################################
 
+# 0. Initiator: Initialize SIR in the current project (creates .sir structure)
 cmd_init(){
   ensure_files
-  ok "ok: init $SIR_DIR"
+  ok "SIR initialized in $SIR_DIR"
 }
 
-cmd_guidar(){
-  ensure_files
-  local scan_dir_path="${1:-.}"
-  [[ -d "$scan_dir_path" ]] || die "dir not found: $scan_dir_path"
-
-  local files
-  files="$(scan_dir "$scan_dir_path" | head -n 200)"
-
-  ai <<EOF
-$(preamble)
-
-Tool: Guidar
-Goal: create/refresh project guidelines.
-
-Input:
-- repo dir: $scan_dir_path
-- file list (partial): 
-$files
-
-Do:
-1) infer stack, conventions, folder map, commands (build/test/lint), style rules.
-2) ask if any critical missing info.
-3) write concise $GUIDE (max ~200 lines). bullets. examples tiny.
-4) append $PROG: "$(ts) guidar updated"
-
-Output: <done/> OR <ask>..</ask>
-EOF
-}
-
+# 1. PRD Creator: Create PRD and initial task list from prompt or directory content
 cmd_prd(){
   ensure_files
-  local prompt="" scan_dir_path=""
+  local prompt="" scan_dir=""
+  # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --prompt) prompt="${2:-}"; shift 2;;
-      --dir) scan_dir_path="${2:-}"; shift 2;;
+      --prompt) prompt="${2:-}"; shift 2 ;;
+      --dir)    scan_dir="${2:-}"; shift 2 ;;
       *) die "unknown arg: $1";;
     esac
   done
-  [[ -n "$prompt" || -n "$scan_dir_path" ]] || die "need --prompt or --dir"
-  [[ -z "$scan_dir_path" || -d "$scan_dir_path" ]] || die "dir not found: $scan_dir_path"
+  [[ -n "$prompt" || -n "$scan_dir" ]] || die "usage: sir prd --prompt \"...\" | --dir <path>"
+  [[ -z "$scan_dir" || -d "$scan_dir" ]] || die "dir not found: $scan_dir"
 
-  local files=""
-  if [[ -n "$scan_dir_path" ]]; then
-    files="$(scan_dir "$scan_dir_path" | head -n 250)"
-  fi
-
+  # Call AI to generate PRD and tasks
   ai <<EOF
-$(preamble)
+$(ctx)
 
-Tool: PRD Creator
-Goal: produce PRD + small tasks.
+Task: Create PRD (Product Requirements Document) and Task List.
 
 Input:
-- user prompt: ${prompt:-none}
-- scan dir: ${scan_dir_path:-none}
-- scan file list (partial):
-${files:-none}
+- User prompt: ${prompt:-none}
+- Scan directory: ${scan_dir:-none}
 
-Loop rule:
-- If anything unclear: output ONLY <ask>Q1; Q2; ...</ask> and stop.
-- Do NOT write PRD/tasks until clarified enough.
-
-When clear:
-1) write $PRD (markdown). sections: Goal, Users, Scope, Non-goals, UX notes, Data/API, Acceptance, Risks.
-2) write $TASKS as JSON:
-{"tasks":[{"id":"T001","title":"...","desc":"...","steps":["..."],"deps":["T000"],"status":"todo","passes":false}]}
-- status: todo|doing|blocked|done
-- keep tasks 0.5-2h. independent. strict acceptance in steps.
-3) append $PROG: "$(ts) prd+tasks updated"
-
-Output: <done/> OR <ask>..</ask>
+Steps:
+1. Gather and understand the project goals from the input (prompt or scanned files).
+2. If a scan_dir is provided, analyze its contents (code, notes) for relevant info.
+3. Ask the user any clarifying questions needed until requirements are clear.
+4. Write a **concise PRD** to "$PRD" (markdown format) describing the product objectives and features.
+5. Create a list of small, independent tasks (features) from the PRD. Use JSON format:
+   {
+     "tasks": [
+       {"id":"T001","title":"...","desc":"...","steps":["..."],"passes": false},
+       ...
+     ]
+   }
+   - Each task: a short title, a brief description, acceptance steps, passes=false.
+   - All tasks should start as passes=false (not completed).
+6. Save the tasks list to "$TASKS".
+7. Append to "$PROG": $(ts) "PRD and tasks created."
+8. Output "<success>prd created</success>" when done.
 EOF
 }
 
-cmd_storyteller(){
-  ensure_files
-  ai <<EOF
-$(preamble)
-
-Tool: Storyteller
-Goal: create user stories from PRD+tasks.
-
-Do:
-1) read $PRD and $TASKS
-2) write $STORIES as markdown list grouped by task id.
-Format each:
-- ID, Title
-- As a..., I want..., so that...
-- Acceptance (bullets)
-- Notes (optional)
-3) append $PROG: "$(ts) stories updated"
-4) stop. no jira calls. user will paste.
-
-Output: <done/> OR <ask>..</ask>
-EOF
-}
-
-cmd_projector(){
-  ensure_files
-  # process new info in INBOX not in PROCESSED
-  local new_files
-  new_files="$( (cd "$INBOX" && find . -type f -maxdepth 5 -print | sed 's|^\./||') | sort )"
-
-  ai <<EOF
-$(preamble)
-
-Tool: Projector
-Goal: sync PRD/tasks/stories from new info.
-
-Input:
-- inbox dir: $INBOX
-- processed markers file: $PROCESSED
-- new files list:
-$new_files
-
-Rules:
-- Determine unprocessed files by checking $PROCESSED.
-- For each unprocessed file, read it, summarize in 1-5 bullets, then:
-  - update PRD if scope/req changed
-  - update TASKS (add/split/reword). keep ids stable if possible.
-  - update STORIES if needed.
-- Append $PROG with timestamp + summary of what changed.
-- Append processed filenames to $PROCESSED (one per line).
-- If conflict/unclear: <ask>...</ask> only.
-
-Output: <done/> OR <ask>..</ask>
-EOF
-}
-
+# 2. Rafael Wagyu: Implement tasks iteratively (one task per iteration)
 cmd_rafael(){
   ensure_files
-  local iterations=1
+  local iterations=10
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --loop) iterations="${2:-1}"; shift 2;;
+      --loop) iterations="${2:-1}"; shift 2 ;;
       *) die "unknown arg: $1";;
     esac
   done
-  [[ "$iterations" =~ ^[0-9]+$ ]] || die "loop must be number"
+  [[ "$iterations" =~ ^[0-9]+$ ]] || die "loop count must be a number"
 
   for ((i=1; i<=iterations; i++)); do
     local out
     out="$(ai <<EOF
-$(preamble)
+$(ctx)
 
-Tool: Rafael Wagyu
-Goal: implement ONE task. tiny. safe.
+Task: Rafael Wagyu - Implement Next Task.
 
-Do (strict):
-1) Read $GUIDE, $PRD, $TASKS, $PROG.
-2) Pick ONE task with status=todo (or blocked->now unblocked). set it status=doing.
-3) Implement only that task. minimal diffs.
-4) Verify: run smallest relevant check (build/test/lint). If none known, say what you'd run.
-5) Update $TASKS:
-   - if verified: status=done, passes=true
-   - else: status=blocked or todo, passes=false, add note in desc
-6) Append $PROG:
-   "$(ts) T###: what done. checks: X. next: Y."
-7) Git:
-   - if AUTO_COMMIT=1 and repo clean enough: commit message "T###: title"
-   - else: output shell cmds to run commit (no essay).
-
-Stop:
-- If all tasks done: output <done/> only.
-- If blocked on user decision: output <ask>...</ask> only.
-
-Output: <done/> OR <ask>..</ask>
+Steps:
+1. Read "$PRD", "$TASKS", "$PROG", and "$GUIDE" to understand the project state and guidelines.
+2. Identify the highest-priority task from "$TASKS" that has "passes": false (not done yet).
+  This should be the one YOU decide has the highest priority - not necessarily the first in the list.
+3. Plan the implementation for that task. If unclear, ask for clarification ONLY if CAN_ASK_CLARIFY is true.
+4. Implement the task:
+   - Make necessary code/file changes for the feature.
+   - Use minimal changes to achieve the tasks acceptance criteria.
+   - Adhere to coding guidelines from "$GUIDE".
+5. Run any tests or feedback loops specified in "$GUIDE" (e.g., unit tests, linters) to verify the feature.
+   - If issues are found, fix them before proceeding.
+6. Once the feature is confirmed working, update the task in "$TASKS" by setting "passes": true.
+7. Append to "$PROG": $(ts) "Implemented <Task ID>: <short description about progress and implementation>".
+8. Create a git commit for this feature (use a descriptive commit message).
+9. If *all* tasks are now passes=true, output "<promise>COMPLETE</promise>".
 EOF
 )"
+    # Print AI output to terminal
     echo "$out"
-    [[ "$out" == *"<ask>"* ]] && exit 0
+    # Check for completion signal
+    if [[ "$out" == *"<promise>COMPLETE</promise>"* ]]; then
+      ok "All tasks completed. Exiting Rafael loop."
+      break
+    fi
   done
 }
 
-cmd_initiator(){  
+# 3. Guidar: Generate project Guidelines documentation
+cmd_guidar(){
   ensure_files
-    
-  local readme="$SIR_DIR/README.txt"
-  [[ -f "$readme" ]] || cat >"$readme" <<EOF
-SIR state folder.
-- memory/PRD.md
-- memory/tasks.json
-- memory/GUIDELINES.md
-- memory/stories.md
-- memory/progress.txt
-- memory/inbox/ (drop new notes here)
+  local scan_dir=""
+  # Optional directory to scan for deriving guidelines
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dir) scan_dir="${2:-}"; shift 2 ;;
+      *) die "unknown arg: $1";;
+    esac
+  done
+  [[ -z "$scan_dir" || -d "$scan_dir" ]] || die "dir not found: $scan_dir"
+
+  ai <<EOF
+$(ctx)
+
+Task: Guidar - Create/Update Project Guidelines.
+
+Input:
+- Scan directory: ${scan_dir:-none}
+
+Steps:
+1. If a project directory is provided, review its structure and key files (e.g., README, code files) to glean conventions or important info.
+2. Ask the user for any additional project-specific guidelines (if something is unclear or missing).
+3. Compile a **GUIDELINES.md** document (save to "$GUIDE") that covers:
+   - Coding style conventions or best practices for this project.
+   - Architectural decisions or design patterns to follow.
+   - Any tools or commands to use for testing, building, etc.
+   - Any other project-specific rules (from existing docs or user input).
+4. Do not include irrelevant info; keep it short and project-focused.
+5. Append to "$PROG": $(ts) "Guidelines created/updated."
+6. Output "<success>guidelines created</success>" when done.
 EOF
-  ok "ok: initiator done"
+}
+
+# 4. Storyteller: Create user stories for each task
+cmd_storyteller(){
+  ensure_files
+  ai <<EOF
+$(ctx)
+
+Task: Storyteller - Generate User Stories.
+
+Steps:
+1. Read "$PRD" for overall context and "$TASKS" for the list of features.
+2. For each task in "$TASKS" (each feature), write a concise **User Story** in the format:
+   - As a <type of user>, I want <feature> so that <benefit>.
+   - Include 2-3 acceptance criteria for each story (bullet points).
+3. Use the PRD to ensure each story captures the intended functionality and value.
+4. Save all user stories to a file (e.g., "$STORIES") in Markdown format.
+   - Format as a list of user stories, clearly labeled or bullet-pointed.
+5. Append to "$PROG": $(ts) "User stories created."
+6. Output "<success>stories created</success>" when done.
+EOF
+}
+
+# 5. Projector: Process new info and update project artifacts (PRD, tasks, etc.)
+cmd_projector(){
+  ensure_files
+  local update_src=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dir)  update_src="${2:-}"; shift 2 ;;  # directory containing new info files
+      --file) update_src="${2:-}"; shift 2 ;;  # single file of new info
+      *) die "unknown arg: $1";;
+    esac
+  done
+  [[ -z "$update_src" || -e "$update_src" ]] || die "source not found: $update_src"
+
+  ai <<EOF
+$(ctx)
+
+Task: Projector - Integrate New Information into Project.
+
+Input:
+- processed markers file: $PROCESSED
+- inbox dir: $INBOX
+
+Steps:
+- Determine unprocessed files by checking $PROCESSED.
+- Summarize the key points or decisions from them.
+- Identify any changes in requirements or new features mentioned in the new info.
+- For each change/new requirement:
+   - Update the "$PRD" if it changes the product scope or adds details.
+   - If a new feature/task is identified, append it to "$TASKS" (with a new ID and passes=false).
+   - If an existing task is affected (e.g., changed acceptance criteria), update its description or steps.
+- Ensure not to duplicate tasks; maintain consistency in "$TASKS".
+- If "$GUIDE" (guidelines) needs updates (e.g., new conventions or decisions), update it as well.
+- Append to "$PROG": $(ts) "Project updated with new info: <brief summary>."
+- Append processed filenames to $PROCESSED (one per line).
+- (Optional) Prepare updates for JIRA or external trackers as needed, but do not execute them automatically.
+- Output "<success>project updated</success>" when done.
+EOF
 }
 
 ########################################
-# MAIN
+# MAIN ENTRY POINT
 ########################################
+
 usage(){
   cat <<EOF
-SIR
+SIR - Stateful Incremental Reasoner (CLI for AI project management)
 
 Usage:
-  sir init
-  sir initiator
-  sir guidar [repo_dir]
-  sir prd --prompt "..." | --dir path
-  sir storyteller
-  sir projector
-  sir rafael [--loop N]
+  sir init                       Initialize SIR in current project (create $SIR_DIR/ structure).
+  sir prd --prompt "DESC"        Create PRD from a prompt (initial idea/requirements).
+  sir prd --dir PATH             Create PRD by analyzing files in PATH (existing docs/code).
+  sir rafael [--loop N]          Run Rafael (AI coder) N iterations (default 1). Use --loop 0 for infinite until complete.
+  sir guidar [--dir PATH]        Generate GUIDELINES.md by scanning project files.
+  sir storyteller                Produce user_stories.md from PRD and tasks.
+  sir projector [--file F|--dir D] Process new info (file or dir) and update PRD/tasks.
 
-Env:
-  SIR_DIR MEM PRD TASKS PROG GUIDE INBOX PROCESSED STORIES
-  AI_CMD AI_ARGS_DEFAULT_STR
-  TONE P_SYS P_FORMAT P_GUARD
-  AUTO_COMMIT=0|1
+Environment variables (override defaults per project):
+  SIR_DIR, MEM, PRD, TASKS, PROG, GUIDE (file paths)
+  AI_CMD, AI_ARGS_DEFAULT (AI backend command and default args)
+  TONE (tone/style instructions for AI outputs)
 
 Examples:
-  ./sir.sh initiator
-  ./sir.sh guidar .
-  ./sir.sh prd --prompt "feature: ..."
+  ./sir.sh init
+  ./sir.sh guidar --dir src/        # gather coding guidelines from src directory
+  ./sir.sh prd --prompt "Build a Todo app"
+  ./sir.sh rafael --loop 5         # implement tasks with up to 5 iterations
   ./sir.sh storyteller
-  ./sir.sh rafael --loop 3
-  ./sir.sh projector
+  ./sir.sh projector --file meeting_notes.txt
 EOF
 }
 
 main(){
-  need "$AI_CMD"
-  need python3 || true
+  need "$AI_CMD"  # ensure AI command is available
+
   local cmd="${1:-}"; shift || true
-  
   case "$cmd" in
-    init)        cmd_init "$@";;
-    initiator)   cmd_initiator "$@";;
-    guidar)      cmd_guidar "$@";;
-    prd)         cmd_prd "$@";;
-    storyteller) cmd_storyteller "$@";;
-    projector)   cmd_projector "$@";;
-    rafael)      cmd_rafael "$@";;
-    ""|-h|--help|help) usage;;
-    *) die "unknown cmd: $cmd";;
+    init)        cmd_init "$@" ;;
+    prd)         cmd_prd "$@" ;;
+    rafael)      cmd_rafael "$@" ;;
+    guidar)      cmd_guidar "$@" ;;
+    storyteller) cmd_storyteller "$@" ;;
+    projector)   cmd_projector "$@" ;;
+    ""|-h|--help|help) usage ;;
+    *) die "unknown command: $cmd" ;;
   esac
 }
 
