@@ -1,4 +1,4 @@
-SIR — Stateful Incremental Reasoner (Simple Intelligence for Reasoning)
+SIR — Stateful Incremental Reasoner (Supreme Intelligence for Reasoning)
 
 Build a very simple shell script, with various tools that leverage the use of AI(Claude Code), to help with daily development and project management tasks.
 It'll be built incrementally, so split workload into many smaller tasks that can be acomplished independently, to avoid context filling up.
@@ -40,18 +40,15 @@ Tools:
 
 # 3. Guidar
 
-(Will be created later) with PRD creator and Rafael.
 Would basically analyze the project(repository), ask questions if needed and ask for any special information then create a GUIDELINES file (or if too long a folder with multiple docs).
 
 # 4. Storyteller
 
-(Will be created later) with PRD creator and Rafael.
 Creates from PRD and tasks a list of User Stories for each tasks.
 Prepare those to be sent to JIRA after user confirmation (for each).
 
 # 5. Projector
 
-(Will be created later) with PRD creator and Rafael.
 Would keep track of a feature/initiative in a large project and keep everything in sync (JIRA, PRD, user stories, tasks), where multiple people are involved.
 The project will first start from a PRD, but then (as a project's life is), new stuff come in, new discussions, meetings, decisions, etc.
 Those new information will be captured in various file formats (meeting notes, chat discussions, comments, etc.)
@@ -65,5 +62,3 @@ This is the tool, one-liner, that initiates or updated this whole tooling inside
 When running in a new repo/project, we'd basically copy paste the bash file, and run ./sir init, which will create the .sir folder with the structure
 Basically, for an existing project and a new feature, we'd run:
 Guidar, PRD Creator, Storyteller; then start Rafael; then run Projector whenever there is an update.
-
----
